@@ -1,4 +1,7 @@
 # EcoLens
+![npm](https://img.shields.io/npm/v/ecolens)
+![license](https://img.shields.io/npm/l/ecolens)
+![Cloudinary](https://img.shields.io/badge/Built%20with-Cloudinary-blue)
 
 EcoLens is a lightweight, production-ready Command Line Interface (CLI) designed to optimize image delivery in web applications. It scans your repository for image references and automatically rewrites them into optimized Cloudinary fetch URLs, reducing bandwidth consumption and improving page load performance.
 
