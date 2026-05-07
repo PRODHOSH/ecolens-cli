@@ -3,10 +3,13 @@ import path from 'path';
 import glob from 'fast-glob';
 import chalk from 'chalk';
 import ora from 'ora';
+import logSymbols from 'log-symbols';
+import Table from 'cli-table3';
 import { config as dotenvConfig } from 'dotenv';
 import { rewriteContent } from '../utils/transformer.js';
 
-dotenvConfig();
+// Suppress dotenv noise by specifying path and ensuring no logs
+dotenvConfig({ path: path.join(process.cwd(), '.env') });
 
 interface OptimizationMetrics {
   totalImages: number;
@@ -17,11 +20,13 @@ interface OptimizationMetrics {
 }
 
 export async function optimizeCommand() {
+  console.log(chalk.bold(`\nEcoLens CLI v1.1.0\n`));
+
   const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
 
   if (!cloudName) {
-    console.error(chalk.red('✖ CLOUDINARY_CLOUD_NAME not found in environment.'));
-    console.log('Please add it to your .env file.');
+    console.log(`${logSymbols.error} ${chalk.red('CLOUDINARY_CLOUD_NAME missing')}`);
+    console.log(chalk.gray('\nAdd it to your .env file and try again.\n'));
     process.exit(1);
   }
 
@@ -33,10 +38,10 @@ export async function optimizeCommand() {
     const config = JSON.parse(configContent);
     baseUrl = config.baseUrl;
   } catch (e) {
-    // Config not found or invalid, continue without baseUrl
+    // Config not found or invalid
   }
 
-  const spinner = ora('Scanning repository...').start();
+  const scanSpinner = ora('Scanning project...').start();
 
   // 1. Scan files
   const patterns = [
@@ -52,7 +57,7 @@ export async function optimizeCommand() {
     '.next/**',
     'dist/**',
     'build/**',
-    'src/**', // Ignore source of the CLI itself
+    'src/**', 
     'ecolens-report.md',
     '.env',
     'package.json',
@@ -61,7 +66,12 @@ export async function optimizeCommand() {
   ];
 
   const files = await glob(patterns, { ignore });
-  spinner.text = `Found ${files.length} files. Applying Cloudinary transformations...`;
+  scanSpinner.stop();
+  
+  // We'll do a quick pre-scan to count potential images if needed, but let's stick to the flow
+  console.log(`${logSymbols.success} Found ${chalk.bold(files.length)} potential files`);
+
+  const optimizeSpinner = ora('Applying Cloudinary optimizations...').start();
 
   const metrics: OptimizationMetrics = {
     totalImages: 0,
@@ -72,6 +82,7 @@ export async function optimizeCommand() {
   };
 
   const modifiedFilesList: string[] = [];
+  const skippedFilesList: { file: string; reason: string }[] = [];
 
   // 2. Process files
   for (const file of files) {
@@ -85,10 +96,34 @@ export async function optimizeCommand() {
       metrics.totalImages += count;
       metrics.filesModified++;
       modifiedFilesList.push(file);
+      
+      // Update spinner text with current file
+      optimizeSpinner.text = `Updating ${chalk.cyan(file)}...`;
+    } else if (count === 0 && content.includes('src=')) {
+      // It had images but they were excluded (e.g. SVG)
+      if (content.includes('.svg')) {
+        skippedFilesList.push({ file, reason: 'SVG already optimized or unsupported' });
+      }
     }
   }
 
-  spinner.text = 'Generating optimization report...';
+  optimizeSpinner.stop();
+
+  // Show modified files
+  modifiedFilesList.forEach(file => {
+    console.log(`${logSymbols.success} Updated ${chalk.gray(file)}`);
+  });
+
+  // Show important skips
+  skippedFilesList.slice(0, 3).forEach(skip => {
+    console.log(`${chalk.yellow('↺')} Skipped ${chalk.gray(skip.file)} (${chalk.gray(skip.reason)})`);
+  });
+
+  if (skippedFilesList.length > 3) {
+    console.log(chalk.gray(`  ... and ${skippedFilesList.length - 3} more files skipped`));
+  }
+
+  const reportSpinner = ora('Generating sustainability report...').start();
 
   // 3. Calculate Metrics
   const avgOriginalSizeMB = 0.5; 
@@ -122,6 +157,7 @@ ${modifiedFilesList.map(f => `- ${f}`).join('\n')}
 ## Next Steps
 - Verify the changes in your local environment.
 - Commit the changes if everything looks good.
+- Ensure your website URL is correctly set in \`ecolens.config.json\` for future runs.
 - Enjoy a faster, more eco-friendly website!
 
 ---
@@ -129,12 +165,30 @@ ${modifiedFilesList.map(f => `- ${f}`).join('\n')}
 `;
 
   await writeFile(path.join(process.cwd(), 'ecolens-report.md'), report);
+  reportSpinner.stop();
+  console.log(`${logSymbols.success} Generated ${chalk.gray('ecolens-report.md')}`);
 
-  spinner.succeed(chalk.green('Optimization complete'));
+  console.log(chalk.bold('\nOptimization complete.\n'));
 
-  console.log(chalk.cyan('\n📊 Optimization Summary:'));
-  console.log(`- Images Found: ${chalk.bold(metrics.totalImages)}`);
-  console.log(`- Files Modified: ${chalk.bold(metrics.filesModified)}`);
-  console.log(`- Estimated Savings: ${chalk.bold(totalSavingsMB.toFixed(2) + ' MB')}`);
-  console.log(`- CO₂ Reduction: ${chalk.bold(co2Reduction.toFixed(2) + 'g/load')}`);
+  // Summary Table
+  console.log(chalk.cyan.bold('Optimization Summary'));
+  console.log(chalk.cyan('────────────────────'));
+  
+  const table = new Table({
+    chars: { 'top': '' , 'top-mid': '' , 'top-left': '' , 'top-right': ''
+           , 'bottom': '' , 'bottom-mid': '' , 'bottom-left': '' , 'bottom-right': ''
+           , 'left': '' , 'left-mid': '' , 'mid': '' , 'mid-mid': ''
+           , 'right': '' , 'right-mid': '' , 'middle': '' },
+    style: { 'padding-left': 0, 'padding-right': 2 }
+  });
+
+  table.push(
+    ['Images Found', chalk.bold(metrics.totalImages)],
+    ['Files Modified', chalk.bold(metrics.filesModified)],
+    ['Estimated Savings', chalk.bold(totalSavingsMB.toFixed(2) + ' MB')],
+    ['CO₂ Reduction', chalk.bold(co2Reduction.toFixed(2) + 'g/load')]
+  );
+
+  console.log(table.toString());
+  console.log();
 }
