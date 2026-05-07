@@ -1,0 +1,11 @@
+src
+tsconfig.json
+.env
+.env.example
+ecolens.config.json
+ecolens-report.md
+test-project
+ecolens_walkthrough.md
+publishing_guide.md
+node_modules
+rimraf
